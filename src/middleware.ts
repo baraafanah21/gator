@@ -18,13 +18,19 @@ export function middlewareLoggedIn(
   return async (cmdName: string, ...args: string[]) => {
     const config = readConfig();
 
+    if (config.currentUserName === "") {
+      throw new Error(
+        `${cmdName} needs a logged-in user. Run 'register <name>' or 'login <name>' first.`,
+      );
+    }
+
     const user = await getUserByName(
       config.currentUserName,
     );
 
     if (!user) {
       throw new Error(
-        `User ${config.currentUserName} not found`,
+        `User ${config.currentUserName} not found. Run 'login <name>' with an existing user, or 'users' to list them.`,
       );
     }
 
