@@ -67,3 +67,27 @@ export const posts = pgTable("posts", {
     .notNull()
     .references(() => feeds.id, { onDelete: "cascade" }),
 });
+
+// What a single user has done with a single post. A row only exists once the
+// user has read or bookmarked the post; a missing row means "unread, not
+// bookmarked".
+export const postStates = pgTable(
+  "post_states",
+  {
+    id: uuid("id").primaryKey().defaultRandom().notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    postId: uuid("post_id")
+      .notNull()
+      .references(() => posts.id, { onDelete: "cascade" }),
+    readAt: timestamp("read_at"),
+    bookmarkedAt: timestamp("bookmarked_at"),
+  },
+  (t) => [unique("post_states_user_post_unique").on(t.userId, t.postId)],
+);
