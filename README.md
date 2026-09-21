@@ -77,9 +77,28 @@ npm run start agg 1m
 
 # In another terminal: show the 10 newest posts
 npm run start browse 10
+
+# Keep one for later, then hide the rest from your unread list
+npm run start bookmark "https://example.com/a-post"
+npm run start markread -- --all
 ```
 
+Run `npm run start help` at any point to see every command.
+
+### Passing flags
+
+`npm run` keeps flags for itself, so put `--` before any flag you mean for gator:
+
+```bash
+npm run start browse -- --limit 10 --unread
+```
+
+Arguments that are not flags need no `--`, so `npm run start browse 10` works as is.
+
 ### Commands
+
+Run `npm run start help` for this list in your terminal, or `help <command>` for
+one command's flags.
 
 #### Users
 
@@ -93,32 +112,80 @@ npm run start browse 10
 
 | Command | Description |
 | --- | --- |
-| `addfeed <name> <url>` | Add an RSS feed and follow it. Requires login. |
-| `feeds` | List every feed with its URL and the user who added it. |
+| `addfeed <name> <url>` | Add an RSS or Atom feed and follow it. Requires login. |
+| `feeds` | List every feed with its URL, owner, follower and post counts, and when it was last fetched. |
 | `follow <url>` | Follow a feed that someone has already added. Requires login. |
 | `following` | List the feeds you follow. Requires login. |
 | `unfollow <url>` | Stop following a feed. Requires login. |
+| `deletefeed <url>` | Delete a feed you added, along with its posts. Only the user who added the feed can delete it. Requires login. |
 
 #### Posts
 
 | Command | Description |
 | --- | --- |
-| `agg <interval>` | Keep fetching feeds, one per interval, and save new posts. |
-| `browse [limit]` | Show the newest posts from feeds you follow. Shows 2 if you don't give a limit. Requires login. |
+| `agg <interval> [--limit <n>]` | Keep fetching feeds, one per interval, and save new posts. |
+| `browse [limit] [flags]` | Show the newest posts from feeds you follow. Shows 2 if you don't give a limit. Requires login. |
+| `bookmarks [limit] [flags]` | Show your bookmarked posts. Takes the same flags as `browse`. Requires login. |
+| `bookmark <url>` | Bookmark a post by its URL. Requires login. |
+| `unbookmark <url>` | Remove a bookmark. Requires login. |
+| `markread <url>` | Mark a post read. With `--all`, marks every post from feeds you follow. Requires login. |
+| `markunread <url>` | Mark a post unread again. Requires login. |
 
 #### Maintenance
 
 | Command | Description |
 | --- | --- |
+| `help [command]` | List every command, or show one command's flags. |
 | `reset` | Delete all users. Their feeds, follows and posts are deleted too. |
+
+### Filtering what you browse
+
+`browse` and `bookmarks` accept these flags:
+
+| Flag | Description |
+| --- | --- |
+| `--limit <n>` | How many posts to show. The same as the positional limit. |
+| `--offset <n>` | Skip the first `n` posts, for paging through results. |
+| `--feed <name>` | Only posts from feeds whose name contains `<name>`. |
+| `--search <term>` | Only posts whose title or description contains `<term>`. |
+| `--since <age>` | Only posts newer than an age such as `2d` or `12h`. |
+| `--unread` | Only posts you have not marked read. |
+| `--bookmarked` | Only posts you have bookmarked. |
+| `--full` | Show the whole description instead of a short preview. |
+| `--mark-read` | Mark every post shown as read. |
+
+Matching ignores case. Descriptions have their HTML stripped so they read in a
+terminal; `--full` shows the whole thing.
+
+```bash
+# The 5 newest unread posts from feeds with "rust" in the name, mentioning cargo
+npm run start browse -- --limit 5 --unread --feed rust --search cargo
+
+# Page through everything from the past week, 10 at a time
+npm run start browse -- --limit 10 --since 7d
+npm run start browse -- --limit 10 --since 7d --offset 10
+
+# Read something later
+npm run start bookmark https://example.com/a-post
+npm run start bookmarks
+```
+
+Read state and bookmarks are per user: marking a post read does not change it
+for anyone else.
 
 ### How `agg` works
 
 `agg` runs until you press Ctrl+C. Each interval, it picks the feed that has gone longest without being fetched (feeds that have never been fetched come first). It then fetches that feed and saves any posts it hasn't seen before.
 
-The interval is a number followed by a unit: `ms`, `s`, `m` or `h`. For example `30s`, `5m` or `1h`. Use an interval of a minute or more so you don't overload the sites you're fetching from.
+The interval is a number followed by a unit: `ms`, `s`, `m`, `h` or `d`. For example `30s`, `5m` or `1h`. Use an interval of a minute or more so you don't overload the sites you're fetching from.
 
-gator only reads RSS feeds. Atom feeds (ones whose XML starts with `<feed>`) are not supported yet.
+Pass `--limit <n>` to stop after `n` rounds instead of running until Ctrl+C, which is handy for a one-off fetch:
+
+```bash
+npm run start agg 1m -- --limit 1
+```
+
+gator reads both RSS (`<rss><channel>`) and Atom (`<feed>`) feeds. Atom entries are mapped onto the same fields: the `alternate` link becomes the post URL, `summary` or `content` becomes the description, and `published` or `updated` becomes the publish date.
 
 ## Development
 
