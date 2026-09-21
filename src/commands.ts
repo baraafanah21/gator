@@ -1,6 +1,15 @@
 import { fetchFeed } from "./rss.js";
 import { deleteAllUsers } from "./lib/db/queries/users.js";
-import { setUser,readConfig } from "./config.js";
+import { setUser, readConfig } from "./config.js";
+import {
+  flagBool,
+  flagString,
+  nonNegativeInt,
+  parseDuration,
+  parseFlags,
+  positiveInt,
+} from "./args.js";
+import { usageError } from "./help.js";
 import {
   createUser,
   getUserByName,
@@ -9,6 +18,7 @@ import {
 } from "./lib/db/queries/users.js";
 import {
   createFeed,
+  deleteFeed,
   getFeedByURL,
   getFeeds,
   getNextFeedToFetch,
@@ -22,8 +32,16 @@ import {
 } from "./lib/db/queries/feedFollows.js";
 import {
   createPost,
+  getPostByURL,
   getPostsForUser,
+  type BrowseOptions,
+  type BrowsedPost,
 } from "./lib/db/queries/posts.js";
+import {
+  markAllPostsRead,
+  setPostBookmarked,
+  setPostRead,
+} from "./lib/db/queries/postStates.js";
 
 export type CommandHandler = (
   cmdName: string,
@@ -32,12 +50,40 @@ export type CommandHandler = (
 
 export type CommandsRegistry = Record<string, CommandHandler>;
 
+export function registerCommand(
+  registry: CommandsRegistry,
+  cmdName: string,
+  handler: CommandHandler,
+): void {
+  registry[cmdName] = handler;
+}
+
+export async function runCommand(
+  registry: CommandsRegistry,
+  cmdName: string,
+  ...args: string[]
+): Promise<void> {
+  const handler = registry[cmdName];
+
+  if (handler === undefined) {
+    throw new Error(
+      `Unknown command: ${cmdName}\nRun 'help' to list commands.`,
+    );
+  }
+
+  await handler(cmdName, ...args);
+}
+
+// ---------------------------------------------------------------------------
+// Users
+// ---------------------------------------------------------------------------
+
 export async function handlerLogin(
   cmdName: string,
   ...args: string[]
 ): Promise<void> {
-  if (args.length === 0) {
-    throw new Error("username is required");
+  if (args.length !== 1) {
+    throw usageError(cmdName, "login takes exactly one username");
   }
 
   const username = args[0];
@@ -57,8 +103,8 @@ export async function handlerRegister(
   cmdName: string,
   ...args: string[]
 ): Promise<void> {
-  if (args.length === 0) {
-    throw new Error("username is required");
+  if (args.length !== 1) {
+    throw usageError(cmdName, "register takes exactly one username");
   }
 
   const username = args[0];
@@ -77,42 +123,17 @@ export async function handlerRegister(
   console.log(user);
 }
 
-export function registerCommand(
-  registry: CommandsRegistry,
-  cmdName: string,
-  handler: CommandHandler,
-): void {
-  registry[cmdName] = handler;
-}
-
-export async function runCommand(
-  registry: CommandsRegistry,
-  cmdName: string,
-  ...args: string[]
-): Promise<void> {
-  const handler = registry[cmdName];
-
-  if (handler === undefined) {
-    throw new Error(`Unknown command: ${cmdName}`);
-  }
-
-  await handler(cmdName, ...args);
-}
-
-export async function handlerReset(
-  cmdName: string,
-  ...args: string[]
-): Promise<void> {
-  await deleteAllUsers();
-
-  console.log("Database reset successfully");
-}
-
 export async function handlerUsers(
   cmdName: string,
   ...args: string[]
 ): Promise<void> {
   const users = await getUsers();
+
+  if (users.length === 0) {
+    console.log("No users yet. Create one with 'register <name>'.");
+    return;
+  }
+
   const currentUser = readConfig().currentUserName;
 
   for (const user of users) {
@@ -124,36 +145,164 @@ export async function handlerUsers(
   }
 }
 
-function parseDuration(durationStr: string): number {
-  const regex = /^(\d+)(ms|s|m|h)$/;
-  const match = durationStr.match(regex);
+export async function handlerReset(
+  cmdName: string,
+  ...args: string[]
+): Promise<void> {
+  await deleteAllUsers();
 
-  if (!match) {
+  console.log("Database reset successfully");
+}
+
+// ---------------------------------------------------------------------------
+// Feeds
+// ---------------------------------------------------------------------------
+
+export async function handlerAddFeed(
+  cmdName: string,
+  user: User,
+  ...args: string[]
+): Promise<void> {
+  if (args.length !== 2) {
+    throw usageError(cmdName, "addfeed takes a name and a url");
+  }
+
+  const [name, url] = args;
+
+  const existing = await getFeedByURL(url);
+
+  if (existing) {
     throw new Error(
-      "Invalid duration format",
+      `Feed ${url} already exists as "${existing.name}". Follow it with 'follow ${url}'.`,
     );
   }
 
-  const amount = Number(match[1]);
-  const unit = match[2];
+  const feed = await createFeed(name, url, user.id);
 
-  switch (unit) {
-    case "ms":
-      return amount;
+  printFeed(feed, user);
 
-    case "s":
-      return amount * 1000;
+  const feedFollow = await createFeedFollow(user.id, feed.id);
 
-    case "m":
-      return amount * 60 * 1000;
+  console.log(`${feedFollow.userName} is now following ${feedFollow.feedName}`);
+}
 
-    case "h":
-      return amount * 60 * 60 * 1000;
+export async function handlerFeeds(
+  cmdName: string,
+  ...args: string[]
+): Promise<void> {
+  const feeds = await getFeeds();
 
-    default:
-      throw new Error("Invalid duration unit");
+  if (feeds.length === 0) {
+    console.log("No feeds yet. Add one with 'addfeed <name> <url>'.");
+    return;
+  }
+
+  for (const { feed, user, followerCount, postCount } of feeds) {
+    console.log(`* ${feed.name}`);
+    console.log(`  URL: ${feed.url}`);
+    console.log(`  User: ${user.name}`);
+    console.log(
+      `  Followers: ${followerCount}  Posts: ${postCount}  Last fetched: ${
+        feed.lastFetchedAt ? describeTime(feed.lastFetchedAt) : "never"
+      }`,
+    );
   }
 }
+
+export async function handlerFollow(
+  cmdName: string,
+  user: User,
+  ...args: string[]
+): Promise<void> {
+  if (args.length !== 1) {
+    throw usageError(cmdName, "follow takes exactly one url");
+  }
+
+  const url = args[0];
+
+  const feed = await getFeedByURL(url);
+
+  if (!feed) {
+    throw new Error(
+      `Feed with url ${url} does not exist. Add it with 'addfeed <name> ${url}'.`,
+    );
+  }
+
+  const feedFollow = await createFeedFollow(user.id, feed.id);
+
+  console.log(`${feedFollow.userName} is now following ${feedFollow.feedName}`);
+}
+
+export async function handlerFollowing(
+  cmdName: string,
+  user: User,
+  ...args: string[]
+): Promise<void> {
+  const feedFollows = await getFeedFollowsForUser(user.id);
+
+  if (feedFollows.length === 0) {
+    console.log("You are not following any feeds.");
+    return;
+  }
+
+  for (const feedFollow of feedFollows) {
+    console.log(`* ${feedFollow.feedName}`);
+  }
+}
+
+export async function handlerUnfollow(
+  cmdName: string,
+  user: User,
+  ...args: string[]
+): Promise<void> {
+  if (args.length !== 1) {
+    throw usageError(cmdName, "unfollow takes exactly one url");
+  }
+
+  const [url] = args;
+
+  const feed = await getFeedByURL(url);
+
+  if (!feed) {
+    throw new Error(`Feed ${url} not found`);
+  }
+
+  await deleteFeedFollow(user.id, feed.id);
+
+  console.log(`${user.name} is no longer following ${feed.name}`);
+}
+
+export async function handlerDeleteFeed(
+  cmdName: string,
+  user: User,
+  ...args: string[]
+): Promise<void> {
+  if (args.length !== 1) {
+    throw usageError(cmdName, "deletefeed takes exactly one url");
+  }
+
+  const [url] = args;
+
+  const feed = await getFeedByURL(url);
+
+  if (!feed) {
+    throw new Error(`Feed ${url} not found`);
+  }
+
+  if (feed.userId !== user.id) {
+    throw new Error(
+      `Feed ${feed.name} was added by someone else, so ${user.name} cannot delete it. Use 'unfollow ${url}' instead.`,
+    );
+  }
+
+  await deleteFeed(feed.id);
+
+  console.log(`Deleted feed ${feed.name} and every post saved from it`);
+}
+
+// ---------------------------------------------------------------------------
+// Aggregation
+// ---------------------------------------------------------------------------
 
 export async function scrapeFeeds(): Promise<void> {
   const feed = await getNextFeedToFetch();
@@ -206,153 +355,337 @@ function parsePublishedAt(pubDate: string | undefined): Date | null {
 }
 
 function handleError(err: unknown): void {
-  console.error(err);
+  console.error(err instanceof Error ? err.message : err);
 }
 
 export async function handlerAgg(
   cmdName: string,
   ...args: string[]
 ): Promise<void> {
-  if (args.length !== 1) {
-    throw new Error("agg requires a time between requests, e.g. 1m");
+  const parsed = parseFlags(args, { limit: "string" });
+
+  if (parsed.positional.length !== 1) {
+    throw usageError(cmdName, "agg requires a time between requests, e.g. 1m");
   }
 
-  const timeBetweenRequests = parseDuration(args[0]);
+  const timeBetweenRequests = parseDuration(parsed.positional[0]);
 
-  console.log(`Collecting feeds every ${args[0]}`);
+  const limitFlag = flagString(parsed, "limit");
+  const rounds = limitFlag ? positiveInt(limitFlag, "--limit") : undefined;
 
-  scrapeFeeds().catch(handleError);
+  console.log(
+    rounds
+      ? `Collecting feeds every ${parsed.positional[0]}, ${rounds} times`
+      : `Collecting feeds every ${parsed.positional[0]}`,
+  );
 
-  const interval = setInterval(() => {
-    scrapeFeeds().catch(handleError);
-  }, timeBetweenRequests);
+  let done = 0;
 
   await new Promise<void>((resolve) => {
-    process.on("SIGINT", () => {
-      console.log(
-        "Shutting down feed aggregator...",
-      );
-
+    const stop = () => {
       clearInterval(interval);
-
+      process.off("SIGINT", onSigint);
       resolve();
-    });
+    };
+
+    const onSigint = () => {
+      console.log("Shutting down feed aggregator...");
+      stop();
+    };
+
+    const round = () => {
+      scrapeFeeds()
+        .catch(handleError)
+        .finally(() => {
+          done++;
+
+          if (rounds !== undefined && done >= rounds) {
+            stop();
+          }
+        });
+    };
+
+    const interval = setInterval(round, timeBetweenRequests);
+
+    process.on("SIGINT", onSigint);
+
+    round();
   });
 }
 
-export async function handlerAddFeed(
-  cmdName: string,
-  user: User,
-  ...args: string[]
-): Promise<void> {
-  if (args.length < 2) {
-    throw new Error("name and url are required");
-  }
+// ---------------------------------------------------------------------------
+// Posts
+// ---------------------------------------------------------------------------
 
-  const name = args[0];
-  const url = args[1];
-
-  const feed = await createFeed(name, url, user.id);
-
-  printFeed(feed, user);
-
-  const feedFollow = await createFeedFollow(user.id, feed.id);
-
-  console.log(
-    `${feedFollow.userName} is now following ${feedFollow.feedName}`,
-  );
-}
-
-export async function handlerFollow(
-  cmdName: string,
-  user: User,
-  ...args: string[]
-): Promise<void> {
-  if (args.length < 1) {
-    throw new Error("url is required");
-  }
-
-  const url = args[0];
-
-  const feed = await getFeedByURL(url);
-
-  if (!feed) {
-    throw new Error(`Feed with url ${url} does not exist`);
-  }
-
-  const feedFollow = await createFeedFollow(user.id, feed.id);
-
-  console.log(
-    `${feedFollow.userName} is now following ${feedFollow.feedName}`,
-  );
-}
-
-export async function handlerFollowing(
-  cmdName: string,
-  user: User,
-  ...args: string[]
-): Promise<void> {
-  const feedFollows = await getFeedFollowsForUser(user.id);
-
-  for (const feedFollow of feedFollows) {
-    console.log(`* ${feedFollow.feedName}`);
-  }
-}
+const BROWSE_FLAGS = {
+  limit: "string",
+  offset: "string",
+  feed: "string",
+  search: "string",
+  since: "string",
+  unread: "boolean",
+  bookmarked: "boolean",
+  full: "boolean",
+  "mark-read": "boolean",
+} as const;
 
 export async function handlerBrowse(
   cmdName: string,
   user: User,
   ...args: string[]
 ): Promise<void> {
-  let limit = 2;
-
-  if (args.length > 0) {
-    limit = Number(args[0]);
-
-    if (!Number.isInteger(limit) || limit <= 0) {
-      throw new Error("limit must be a positive integer");
-    }
-  }
-
-  const posts = await getPostsForUser(user.id, limit);
-
-  for (const post of posts) {
-    console.log(`* ${post.title}`);
-    console.log(`  Feed: ${post.feedName}`);
-    console.log(
-      `  Published: ${post.publishedAt ? post.publishedAt.toISOString() : "unknown"}`,
-    );
-    console.log(`  URL: ${post.url}`);
-  }
+  await browse(cmdName, user, args, false);
 }
 
-export async function handlerUnfollow(
+export async function handlerBookmarks(
   cmdName: string,
   user: User,
   ...args: string[]
 ): Promise<void> {
-  if (args.length !== 1) {
-    throw new Error("unfollow requires a URL");
-  }
-
-  const [url] = args;
-
-  const feed = await getFeedByURL(url);
-
-  if (!feed) {
-    throw new Error(`Feed ${url} not found`);
-  }
-
-  await deleteFeedFollow(user.id, feed.id);
+  await browse(cmdName, user, args, true);
 }
 
-export async function handlerFeeds(
+async function browse(
   cmdName: string,
+  user: User,
+  args: string[],
+  bookmarkedOnly: boolean,
+): Promise<void> {
+  const parsed = parseFlags(args, { ...BROWSE_FLAGS });
+
+  if (parsed.positional.length > 1) {
+    throw usageError(cmdName, `${cmdName} takes at most one limit`);
+  }
+
+  const limitArg = flagString(parsed, "limit") ?? parsed.positional[0];
+  const offsetArg = flagString(parsed, "offset");
+  const sinceArg = flagString(parsed, "since");
+
+  const options: BrowseOptions = {
+    limit: limitArg ? positiveInt(limitArg, "limit") : 2,
+    offset: offsetArg ? nonNegativeInt(offsetArg, "--offset") : 0,
+    feedName: flagString(parsed, "feed"),
+    search: flagString(parsed, "search"),
+    since: sinceArg ? new Date(Date.now() - parseDuration(sinceArg)) : undefined,
+    unreadOnly: flagBool(parsed, "unread"),
+    bookmarkedOnly: bookmarkedOnly || flagBool(parsed, "bookmarked"),
+  };
+
+  const posts = await getPostsForUser(user.id, options);
+
+  if (posts.length === 0) {
+    console.log(
+      options.bookmarkedOnly
+        ? "No bookmarked posts match."
+        : "No posts match. Try 'agg 1m' to collect some, or widen your filters.",
+    );
+    return;
+  }
+
+  const full = flagBool(parsed, "full");
+
+  for (const post of posts) {
+    printPost(post, full);
+  }
+
+  if (flagBool(parsed, "mark-read")) {
+    for (const post of posts) {
+      await setPostRead(user.id, post.id, true);
+    }
+
+    console.log(`Marked ${posts.length} posts read`);
+  }
+
+  if (posts.length === options.limit) {
+    const nextOffset = (options.offset ?? 0) + options.limit;
+
+    console.log(`More posts may be available: add --offset ${nextOffset}`);
+  }
+}
+
+function printPost(post: BrowsedPost, full: boolean): void {
+  const labels: string[] = [];
+
+  labels.push(post.readAt ? "read" : "unread");
+
+  if (post.bookmarkedAt) {
+    labels.push("bookmarked");
+  }
+
+  console.log(`* ${post.title}`);
+  console.log(`  Feed: ${post.feedName}`);
+  console.log(
+    `  Published: ${
+      post.publishedAt
+        ? `${post.publishedAt.toISOString()} (${describeTime(post.publishedAt)})`
+        : "unknown"
+    }`,
+  );
+  console.log(`  URL: ${post.url}`);
+  console.log(`  Status: ${labels.join(", ")}`);
+
+  const description = cleanDescription(post.description);
+
+  if (description) {
+    console.log(`  ${full ? description : truncate(description, 200)}`);
+  }
+}
+
+export async function handlerBookmark(
+  cmdName: string,
+  user: User,
   ...args: string[]
 ): Promise<void> {
-  const feeds = await getFeeds();
+  const post = await requirePost(cmdName, "bookmark", args);
 
-  for (const feed of feeds) {
-    printFeed(feed.feed, feed.user);
+  await setPostBookmarked(user.id, post.id, true);
+
+  console.log(`Bookmarked: ${post.title}`);
+}
+
+export async function handlerUnbookmark(
+  cmdName: string,
+  user: User,
+  ...args: string[]
+): Promise<void> {
+  const post = await requirePost(cmdName, "unbookmark", args);
+
+  await setPostBookmarked(user.id, post.id, false);
+
+  console.log(`Removed bookmark: ${post.title}`);
+}
+
+export async function handlerMarkRead(
+  cmdName: string,
+  user: User,
+  ...args: string[]
+): Promise<void> {
+  const parsed = parseFlags(args, { all: "boolean" });
+
+  if (flagBool(parsed, "all")) {
+    if (parsed.positional.length > 0) {
+      throw usageError(cmdName, "markread --all takes no url");
+    }
+
+    const count = await markAllPostsRead(user.id);
+
+    console.log(`Marked ${count} posts read`);
+    return;
   }
+
+  const post = await requirePost(cmdName, "markread", parsed.positional);
+
+  await setPostRead(user.id, post.id, true);
+
+  console.log(`Marked read: ${post.title}`);
+}
+
+export async function handlerMarkUnread(
+  cmdName: string,
+  user: User,
+  ...args: string[]
+): Promise<void> {
+  const post = await requirePost(cmdName, "markunread", args);
+
+  await setPostRead(user.id, post.id, false);
+
+  console.log(`Marked unread: ${post.title}`);
+}
+
+async function requirePost(cmdName: string, label: string, args: string[]) {
+  if (args.length !== 1) {
+    throw usageError(cmdName, `${label} takes exactly one post url`);
+  }
+
+  const url = args[0];
+
+  const post = await getPostByURL(url);
+
+  if (!post) {
+    throw new Error(
+      `No saved post with url ${url}. Run 'browse' to see the urls gator knows about.`,
+    );
+  }
+
+  return post;
+}
+
+// ---------------------------------------------------------------------------
+// Formatting
+// ---------------------------------------------------------------------------
+
+function describeTime(date: Date): string {
+  const seconds = Math.round((Date.now() - date.getTime()) / 1000);
+
+  if (seconds < 0) {
+    return "in the future";
+  }
+
+  const units: [number, string][] = [
+    [60, "second"],
+    [60, "minute"],
+    [24, "hour"],
+    [7, "day"],
+    [52, "week"],
+  ];
+
+  let amount = seconds;
+
+  for (const [size, name] of units) {
+    if (amount < size) {
+      return `${amount} ${name}${amount === 1 ? "" : "s"} ago`;
+    }
+
+    amount = Math.floor(amount / size);
+  }
+
+  return `${amount} year${amount === 1 ? "" : "s"} ago`;
+}
+
+const ENTITIES: Record<string, string> = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+  nbsp: " ",
+};
+
+function decodeEntities(text: string): string {
+  return text.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (entity, body: string) => {
+    if (!body.startsWith("#")) {
+      return ENTITIES[body.toLowerCase()] ?? entity;
+    }
+
+    const code = body[1] === "x" || body[1] === "X"
+      ? Number.parseInt(body.slice(2), 16)
+      : Number(body.slice(1));
+
+    if (!Number.isInteger(code) || code < 0 || code > 0x10ffff) {
+      return entity;
+    }
+
+    return String.fromCodePoint(code);
+  });
+}
+
+// Feed descriptions are HTML, which reads badly in a terminal. The HTML is
+// itself escaped inside the XML, so it has to be decoded before the tags are
+// there to strip, and decoded again for entities in the text they contained.
+function cleanDescription(description: string | null): string {
+  if (!description) {
+    return "";
+  }
+
+  const html = decodeEntities(description);
+
+  const text = html
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/<\/?[a-z][^>]*>/gi, " ");
+
+  return decodeEntities(text).replace(/\s+/g, " ").trim();
+}
+
+function truncate(text: string, max: number): string {
+  return text.length <= max ? text : `${text.slice(0, max - 1).trimEnd()}…`;
 }
