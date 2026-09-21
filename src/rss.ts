@@ -20,78 +20,190 @@ export async function fetchFeed(feedURL: string): Promise<RSSFeed> {
   const response = await fetch(feedURL, {
     headers: {
       "User-Agent": "gator",
+      Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml",
     },
   });
 
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch ${feedURL}: ${response.status} ${response.statusText}`,
+    );
+  }
+
   const xml = await response.text();
 
+  return parseFeed(xml);
+}
+
+// Handles both RSS (<rss><channel>) and Atom (<feed>), normalising Atom into
+// the RSS shape so the rest of gator only deals with one kind of feed.
+export function parseFeed(xml: string): RSSFeed {
   const parser = new XMLParser({
     processEntities: false,
+    ignoreAttributes: false,
+    attributeNamePrefix: "@_",
   });
 
   const parsed = parser.parse(xml);
 
-  if (!parsed.rss || !parsed.rss.channel) {
-    throw new Error("Invalid RSS feed: missing channel");
+  if (parsed?.rss?.channel) {
+    return parseRSS(parsed.rss.channel);
   }
 
-  const channel = parsed.rss.channel;
+  if (parsed?.feed) {
+    return parseAtom(parsed.feed);
+  }
 
-  if (
-    typeof channel.title !== "string" ||
-    typeof channel.link !== "string" ||
-    typeof channel.description !== "string"
-  ) {
+  throw new Error("Invalid feed: expected an RSS <channel> or an Atom <feed>");
+}
+
+function parseRSS(channel: any): RSSFeed {
+  const title = asText(channel.title);
+  const link = asText(channel.link);
+  const description = asText(channel.description);
+
+  if (title === undefined || link === undefined) {
     throw new Error("Invalid RSS feed: missing channel metadata");
   }
 
-  let items: unknown[] = [];
+  const items: RSSItem[] = [];
 
-  if (channel.item !== undefined) {
-    items = Array.isArray(channel.item)
-      ? channel.item
-      : [channel.item];
-  }
-
-  const validItems: RSSItem[] = [];
-
-  for (const item of items) {
-    if (
-      typeof item !== "object" ||
-      item === null
-    ) {
+  for (const raw of asArray(channel.item)) {
+    if (typeof raw !== "object" || raw === null) {
       continue;
     }
 
-    const rssItem = item as Record<string, unknown>;
+    const item = raw as Record<string, unknown>;
 
-    if (
-      typeof rssItem.title !== "string" ||
-      typeof rssItem.link !== "string"
-    ) {
+    const itemTitle = asText(item.title);
+    const itemLink = asText(item.link);
+
+    if (itemTitle === undefined || itemLink === undefined) {
       continue;
     }
 
-    validItems.push({
-      title: rssItem.title,
-      link: rssItem.link,
-      description:
-        typeof rssItem.description === "string"
-          ? rssItem.description
-          : undefined,
-      pubDate:
-        typeof rssItem.pubDate === "string"
-          ? rssItem.pubDate
-          : undefined,
+    items.push({
+      title: itemTitle,
+      link: itemLink,
+      description: asText(item.description),
+      pubDate: asText(item.pubDate),
     });
   }
 
   return {
     channel: {
-      title: channel.title,
-      link: channel.link,
-      description: channel.description,
-      item: validItems,
+      title,
+      link,
+      description: description ?? "",
+      item: items,
     },
   };
+}
+
+function parseAtom(feed: any): RSSFeed {
+  const title = asText(feed.title);
+  const link = resolveAtomLink(feed.link);
+
+  if (title === undefined) {
+    throw new Error("Invalid Atom feed: missing feed title");
+  }
+
+  const items: RSSItem[] = [];
+
+  for (const raw of asArray(feed.entry)) {
+    if (typeof raw !== "object" || raw === null) {
+      continue;
+    }
+
+    const entry = raw as Record<string, unknown>;
+
+    const entryTitle = asText(entry.title);
+    const entryLink = resolveAtomLink(entry.link) ?? asText(entry.id);
+
+    if (entryTitle === undefined || entryLink === undefined) {
+      continue;
+    }
+
+    items.push({
+      title: entryTitle,
+      link: entryLink,
+      description: asText(entry.summary) ?? asText(entry.content),
+      pubDate: asText(entry.published) ?? asText(entry.updated),
+    });
+  }
+
+  return {
+    channel: {
+      title,
+      link: link ?? "",
+      description: asText(feed.subtitle) ?? "",
+      item: items,
+    },
+  };
+}
+
+// An Atom <link> is an attribute-only element, and an entry may carry several.
+// The one people click is rel="alternate", which is also the default rel.
+function resolveAtomLink(link: unknown): string | undefined {
+  const candidates = asArray(link);
+
+  let fallback: string | undefined;
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "string") {
+      fallback ??= candidate;
+      continue;
+    }
+
+    if (typeof candidate !== "object" || candidate === null) {
+      continue;
+    }
+
+    const attrs = candidate as Record<string, unknown>;
+    const href = asText(attrs["@_href"]);
+
+    if (href === undefined) {
+      continue;
+    }
+
+    const rel = asText(attrs["@_rel"]);
+
+    if (rel === undefined || rel === "alternate") {
+      return href;
+    }
+
+    fallback ??= href;
+  }
+
+  return fallback;
+}
+
+function asArray(value: unknown): unknown[] {
+  if (value === undefined || value === null) {
+    return [];
+  }
+
+  return Array.isArray(value) ? value : [value];
+}
+
+// The parser turns numeric text into numbers and elements that carry both text
+// and attributes into objects, so a plain typeof check is not enough.
+function asText(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+
+  if (typeof value === "object" && value !== null) {
+    const text = (value as Record<string, unknown>)["#text"];
+
+    if (text !== undefined) {
+      return asText(text);
+    }
+  }
+
+  return undefined;
 }
