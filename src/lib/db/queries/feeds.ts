@@ -1,6 +1,6 @@
 import { eq, sql } from "drizzle-orm";
 import { db } from "..";
-import { feeds, users } from "../schema";
+import { feedFollows, feeds, posts, users } from "../schema";
 
 export type Feed = typeof feeds.$inferSelect;
 export type User = typeof users.$inferSelect;
@@ -11,9 +11,22 @@ export async function getFeeds() {
     .select({
       feed: feeds,
       user: users,
+      followerCount: sql<number>`(
+        select count(*) from ${feedFollows}
+        where ${feedFollows.feedId} = ${feeds.id}
+      )`.mapWith(Number),
+      postCount: sql<number>`(
+        select count(*) from ${posts}
+        where ${posts.feedId} = ${feeds.id}
+      )`.mapWith(Number),
     })
     .from(feeds)
-    .innerJoin(users, eq(feeds.userId, users.id));
+    .innerJoin(users, eq(feeds.userId, users.id))
+    .orderBy(feeds.name);
+}
+
+export async function deleteFeed(feedId: string): Promise<void> {
+  await db.delete(feeds).where(eq(feeds.id, feedId));
 }
 
 export async function getFeedByURL(url: string) {
