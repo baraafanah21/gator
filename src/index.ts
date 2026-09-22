@@ -6,9 +6,11 @@ import {
   handlerBookmarks,
   handlerBrowse,
   handlerDeleteFeed,
+  handlerExport,
   handlerFeeds,
   handlerFollow,
   handlerFollowing,
+  handlerImport,
   handlerLogin,
   handlerMarkRead,
   handlerMarkUnread,
@@ -37,6 +39,8 @@ async function main(): Promise<void> {
   registerCommand(registry, "following", middlewareLoggedIn(handlerFollowing));
   registerCommand(registry, "unfollow", middlewareLoggedIn(handlerUnfollow));
   registerCommand(registry, "deletefeed", middlewareLoggedIn(handlerDeleteFeed));
+  registerCommand(registry, "import", middlewareLoggedIn(handlerImport));
+  registerCommand(registry, "export", middlewareLoggedIn(handlerExport));
 
   registerCommand(registry, "agg", handlerAgg);
   registerCommand(registry, "browse", middlewareLoggedIn(handlerBrowse));
