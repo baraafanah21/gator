@@ -118,6 +118,8 @@ one command's flags.
 | `following` | List the feeds you follow. Requires login. |
 | `unfollow <url>` | Stop following a feed. Requires login. |
 | `deletefeed <url>` | Delete a feed you added, along with its posts. Only the user who added the feed can delete it. Requires login. |
+| `import <file>` | Add and follow every feed in an OPML file. Requires login. |
+| `export [file]` | Write the feeds you follow as OPML. Requires login. |
 
 #### Posts
 
@@ -172,6 +174,33 @@ npm run start bookmarks
 
 Read state and bookmarks are per user: marking a post read does not change it
 for anyone else.
+
+### Moving feeds in and out
+
+OPML is the file format feed readers use to hand reading lists to each other, so
+it is how you get a list of feeds into gator without adding them one at a time:
+
+```bash
+# See what an OPML file would do before it touches the database
+npm run start import feeds.opml -- --dry-run
+
+# Add and follow everything in it
+npm run start import feeds.opml
+
+# Write the feeds you follow back out
+npm run start export my-feeds.opml
+```
+
+`import` walks the folders other readers nest their feeds in, ignores duplicate
+URLs, and follows feeds gator already knows instead of adding them twice.
+Running it twice changes nothing the second time, so it is safe to re-run.
+
+`export` writes to stdout when you give it no file, which makes it pipeable.
+Add `--all` to export every feed in the database rather than only yours:
+
+```bash
+npm run start export -- --all > everything.opml
+```
 
 ### How `agg` works
 
