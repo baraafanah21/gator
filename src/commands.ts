@@ -1,4 +1,7 @@
+import fs from "fs";
+
 import { fetchFeed } from "./rss.js";
+import { buildOPML, parseOPML } from "./opml.js";
 import { deleteAllUsers } from "./lib/db/queries/users.js";
 import { setUser, readConfig } from "./config.js";
 import {
@@ -29,6 +32,7 @@ import {
   createFeedFollow,
   deleteFeedFollow,
   getFeedFollowsForUser,
+  getFollowedFeeds,
 } from "./lib/db/queries/feedFollows.js";
 import {
   createPost,
@@ -230,7 +234,121 @@ export async function handlerFollow(
 
   const feedFollow = await createFeedFollow(user.id, feed.id);
 
-  console.log(`${feedFollow.userName} is now following ${feedFollow.feedName}`);
+  console.log(
+    feedFollow.alreadyFollowed
+      ? `${feedFollow.userName} already follows ${feedFollow.feedName}`
+      : `${feedFollow.userName} is now following ${feedFollow.feedName}`,
+  );
+}
+
+export async function handlerExport(
+  cmdName: string,
+  user: User,
+  ...args: string[]
+): Promise<void> {
+  const parsed = parseFlags(args, { all: "boolean" });
+
+  if (parsed.positional.length > 1) {
+    throw usageError(cmdName, "export takes at most one file path");
+  }
+
+  const everyFeed = flagBool(parsed, "all");
+
+  const feeds = everyFeed
+    ? (await getFeeds()).map(({ feed }) => ({ name: feed.name, url: feed.url }))
+    : await getFollowedFeeds(user.id);
+
+  if (feeds.length === 0) {
+    throw new Error(
+      everyFeed
+        ? "There are no feeds to export."
+        : "You are not following any feeds, so there is nothing to export. Try 'export --all'.",
+    );
+  }
+
+  const title = everyFeed ? "gator feeds" : `gator feeds for ${user.name}`;
+
+  const opml = buildOPML(title, feeds);
+
+  const [filePath] = parsed.positional;
+
+  if (!filePath) {
+    process.stdout.write(opml);
+    return;
+  }
+
+  fs.writeFileSync(filePath, opml);
+
+  console.log(`Exported ${feeds.length} feeds to ${filePath}`);
+}
+
+export async function handlerImport(
+  cmdName: string,
+  user: User,
+  ...args: string[]
+): Promise<void> {
+  const parsed = parseFlags(args, { "dry-run": "boolean" });
+
+  if (parsed.positional.length !== 1) {
+    throw usageError(cmdName, "import takes exactly one file path");
+  }
+
+  const [filePath] = parsed.positional;
+
+  let xml: string;
+
+  try {
+    xml = fs.readFileSync(filePath, "utf-8");
+  } catch {
+    throw new Error(`Could not read ${filePath}`);
+  }
+
+  const imported = parseOPML(xml);
+
+  if (imported.length === 0) {
+    console.log(`No feeds found in ${filePath}`);
+    return;
+  }
+
+  const dryRun = flagBool(parsed, "dry-run");
+
+  let added = 0;
+  let followed = 0;
+  let unchanged = 0;
+
+  for (const entry of imported) {
+    const existing = await getFeedByURL(entry.url);
+
+    if (dryRun) {
+      console.log(
+        `${(existing ? "follow" : "add").padEnd(6)}  ${entry.name} (${entry.url})`,
+      );
+      continue;
+    }
+
+    const feed = existing ?? (await createFeed(entry.name, entry.url, user.id));
+
+    if (!existing) {
+      added++;
+    }
+
+    const feedFollow = await createFeedFollow(user.id, feed.id);
+
+    if (feedFollow.alreadyFollowed) {
+      unchanged++;
+    } else {
+      followed++;
+    }
+  }
+
+  if (dryRun) {
+    console.log(`${imported.length} feeds in ${filePath}, nothing written`);
+    return;
+  }
+
+  console.log(
+    `Imported ${imported.length} feeds: added ${added}, newly followed ${followed}, already followed ${unchanged}`,
+  );
 }
 
 export async function handlerFollowing(
