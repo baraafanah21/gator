@@ -55,6 +55,27 @@ export const commandHelp: Record<string, CommandHelp> = {
     group: "Feeds",
     requiresLogin: true,
   },
+  import: {
+    usage: "import <file> [--dry-run]",
+    summary: "Add and follow every feed in an OPML file.",
+    group: "Feeds",
+    requiresLogin: true,
+    details: [
+      "OPML is what other feed readers export, so this moves a reading list in.",
+      "Feeds gator already knows are followed rather than added twice.",
+      "--dry-run  list what would happen without writing anything.",
+    ],
+  },
+  export: {
+    usage: "export [file] [--all]",
+    summary: "Write the feeds you follow as OPML.",
+    group: "Feeds",
+    requiresLogin: true,
+    details: [
+      "Without a file path the OPML goes to stdout, so it can be piped.",
+      "--all  export every feed in the database, not just the ones you follow.",
+    ],
+  },
   deletefeed: {
     usage: "deletefeed <url>",
     summary: "Delete a feed you added, with its posts and follows.",
