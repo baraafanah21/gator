@@ -27,11 +27,13 @@ import {
   getNextFeedToFetch,
   markFeedFetched,
   printFeed,
+  type Feed,
 } from "./lib/db/queries/feeds.js";
 import {
   createFeedFollow,
   deleteFeedFollow,
   getFeedFollowsForUser,
+  getFeedsFollowedBy,
   getFollowedFeeds,
 } from "./lib/db/queries/feedFollows.js";
 import {
@@ -430,6 +432,12 @@ export async function scrapeFeeds(): Promise<void> {
     return;
   }
 
+  await scrapeFeed(feed);
+}
+
+// Fetches one feed, saves the posts we have not seen, and returns how many
+// were new.
+async function scrapeFeed(feed: Feed): Promise<number> {
   console.log(`Fetching feed: ${feed.name}`);
 
   const rssFeed = await fetchFeed(feed.url);
@@ -455,6 +463,65 @@ export async function scrapeFeeds(): Promise<void> {
   console.log(
     `Saved ${saved} new posts from ${feed.name} (${rssFeed.channel.item.length} in feed)`,
   );
+
+  return saved;
+}
+
+// A one-off fetch, for when you want posts now rather than waiting for agg to
+// work its way round to a feed.
+export async function handlerFetch(
+  cmdName: string,
+  user: User,
+  ...args: string[]
+): Promise<void> {
+  if (args.length > 1) {
+    throw usageError(cmdName, "fetch takes at most one feed url");
+  }
+
+  const [url] = args;
+
+  let feeds: Feed[];
+
+  if (url) {
+    const feed = await getFeedByURL(url);
+
+    if (!feed) {
+      throw new Error(
+        `Feed ${url} not found. Add it with 'addfeed <name> ${url}'.`,
+      );
+    }
+
+    feeds = [feed];
+  } else {
+    feeds = await getFeedsFollowedBy(user.id);
+
+    if (feeds.length === 0) {
+      console.log("You are not following any feeds, so there is nothing to fetch.");
+      return;
+    }
+  }
+
+  let saved = 0;
+  const failed: string[] = [];
+
+  for (const feed of feeds) {
+    try {
+      saved += await scrapeFeed(feed);
+    } catch (err) {
+      handleError(err);
+      failed.push(feed.name);
+    }
+  }
+
+  if (feeds.length > 1) {
+    console.log(
+      `Fetched ${feeds.length - failed.length} of ${feeds.length} feeds, saved ${saved} new posts`,
+    );
+  }
+
+  if (failed.length > 0) {
+    throw new Error(`Could not fetch: ${failed.join(", ")}`);
+  }
 }
 
 function parsePublishedAt(pubDate: string | undefined): Date | null {
@@ -595,7 +662,7 @@ async function browse(
     console.log(
       options.bookmarkedOnly
         ? "No bookmarked posts match."
-        : "No posts match. Try 'agg 1m' to collect some, or widen your filters.",
+        : "No posts match. Try 'fetch' to collect some, or widen your filters.",
     );
     return;
   }
