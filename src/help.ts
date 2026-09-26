@@ -97,6 +97,16 @@ export const commandHelp: Record<string, CommandHelp> = {
       "Runs until you press Ctrl+C when no limit is given.",
     ],
   },
+  fetch: {
+    usage: "fetch [url]",
+    summary: "Fetch every feed you follow once, or just one feed, now.",
+    group: "Posts",
+    requiresLogin: true,
+    details: [
+      "Unlike agg, this fetches straight away and then exits.",
+      "A feed that fails is reported and skipped; the rest are still fetched.",
+    ],
+  },
   browse: {
     usage: "browse [limit] [flags]",
     summary: "Show the newest posts from feeds you follow.",
