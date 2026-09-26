@@ -42,6 +42,17 @@ export async function getFollowedFeeds(userId: string) {
     .orderBy(feeds.name);
 }
 
+export async function getFeedsFollowedBy(userId: string) {
+  const rows = await db
+    .select({ feed: feeds })
+    .from(feedFollows)
+    .innerJoin(feeds, eq(feedFollows.feedId, feeds.id))
+    .where(eq(feedFollows.userId, userId))
+    .orderBy(feeds.name);
+
+  return rows.map(({ feed }) => feed);
+}
+
 export async function getFeedFollowsForUser(userId: string) {
   return await db
     .select({
