@@ -8,6 +8,7 @@ import {
   handlerDeleteFeed,
   handlerExport,
   handlerFeeds,
+  handlerFetch,
   handlerFollow,
   handlerFollowing,
   handlerImport,
@@ -43,6 +44,7 @@ async function main(): Promise<void> {
   registerCommand(registry, "export", middlewareLoggedIn(handlerExport));
 
   registerCommand(registry, "agg", handlerAgg);
+  registerCommand(registry, "fetch", middlewareLoggedIn(handlerFetch));
   registerCommand(registry, "browse", middlewareLoggedIn(handlerBrowse));
   registerCommand(registry, "bookmarks", middlewareLoggedIn(handlerBookmarks));
   registerCommand(registry, "bookmark", middlewareLoggedIn(handlerBookmark));
