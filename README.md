@@ -126,6 +126,7 @@ one command's flags.
 | Command | Description |
 | --- | --- |
 | `agg <interval> [--limit <n>]` | Keep fetching feeds, one per interval, and save new posts. |
+| `fetch [url]` | Fetch every feed you follow once, right now, or just the feed at `url`. Requires login. |
 | `browse [limit] [flags]` | Show the newest posts from feeds you follow. Shows 2 if you don't give a limit. Requires login. |
 | `bookmarks [limit] [flags]` | Show your bookmarked posts. Takes the same flags as `browse`. Requires login. |
 | `bookmark <url>` | Bookmark a post by its URL. Requires login. |
@@ -213,6 +214,24 @@ Pass `--limit <n>` to stop after `n` rounds instead of running until Ctrl+C, whi
 ```bash
 npm run start agg 1m -- --limit 1
 ```
+
+### Fetching right away
+
+`agg` fetches one feed per interval, so after an `import` it can take a while to
+reach every feed. `fetch` fetches all the feeds you follow once, back to back,
+and then exits:
+
+```bash
+# Everything you follow
+npm run start fetch
+
+# Just one feed
+npm run start fetch https://hnrss.org/newest
+```
+
+If a feed fails to download or parse, `fetch` reports it and moves on to the
+next one. It exits with an error at the end naming the feeds that failed, so
+scripts can tell something went wrong.
 
 gator reads both RSS (`<rss><channel>`) and Atom (`<feed>`) feeds. Atom entries are mapped onto the same fields: the `alternate` link becomes the post URL, `summary` or `content` becomes the description, and `published` or `updated` becomes the publish date.
 
