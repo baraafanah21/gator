@@ -32,8 +32,8 @@ import {
 import {
   createFeedFollow,
   deleteFeedFollow,
-  getFeedFollowsForUser,
   getFeedsFollowedBy,
+  getFollowedFeedsWithCounts,
   getFollowedFeeds,
 } from "./lib/db/queries/feedFollows.js";
 import {
@@ -358,16 +358,45 @@ export async function handlerFollowing(
   user: User,
   ...args: string[]
 ): Promise<void> {
-  const feedFollows = await getFeedFollowsForUser(user.id);
+  const parsed = parseFlags(args, { unread: "boolean" });
 
-  if (feedFollows.length === 0) {
+  if (parsed.positional.length > 0) {
+    throw usageError(cmdName, "following takes no arguments");
+  }
+
+  const followed = await getFollowedFeedsWithCounts(user.id);
+
+  if (followed.length === 0) {
     console.log("You are not following any feeds.");
     return;
   }
 
-  for (const feedFollow of feedFollows) {
-    console.log(`* ${feedFollow.feedName}`);
+  const unreadOnly = flagBool(parsed, "unread");
+
+  const shown = unreadOnly
+    ? followed.filter(({ unreadCount }) => unreadCount > 0)
+    : followed;
+
+  if (shown.length === 0) {
+    console.log("Nothing unread in the feeds you follow.");
+    return;
   }
+
+  for (const { feed, postCount, unreadCount } of shown) {
+    console.log(`* ${feed.name}`);
+    console.log(`  URL: ${feed.url}`);
+    console.log(
+      `  Unread: ${unreadCount}  Posts: ${postCount}  Last fetched: ${
+        feed.lastFetchedAt ? describeTime(feed.lastFetchedAt) : "never"
+      }`,
+    );
+  }
+
+  const totalUnread = followed.reduce((sum, { unreadCount }) => sum + unreadCount, 0);
+
+  console.log(
+    `${totalUnread} unread across ${followed.length} feed${followed.length === 1 ? "" : "s"}`,
+  );
 }
 
 export async function handlerUnfollow(
