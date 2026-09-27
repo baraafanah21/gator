@@ -77,23 +77,6 @@ export async function getFollowedFeedsWithCounts(userId: string) {
     .orderBy(feeds.name);
 }
 
-export async function getFeedFollowsForUser(userId: string) {
-  return await db
-    .select({
-      id: feedFollows.id,
-      createdAt: feedFollows.createdAt,
-      updatedAt: feedFollows.updatedAt,
-      userId: feedFollows.userId,
-      feedId: feedFollows.feedId,
-      userName: users.name,
-      feedName: feeds.name,
-    })
-    .from(feedFollows)
-    .innerJoin(users, eq(feedFollows.userId, users.id))
-    .innerJoin(feeds, eq(feedFollows.feedId, feeds.id))
-    .where(eq(feedFollows.userId, userId));
-}
-
 export async function deleteFeedFollow(
   userId: string,
   feedId: string,
