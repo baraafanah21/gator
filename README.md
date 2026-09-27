@@ -115,7 +115,7 @@ one command's flags.
 | `addfeed <name> <url>` | Add an RSS or Atom feed and follow it. Requires login. |
 | `feeds` | List every feed with its URL, owner, follower and post counts, and when it was last fetched. |
 | `follow <url>` | Follow a feed that someone has already added. Requires login. |
-| `following` | List the feeds you follow. Requires login. |
+| `following [--unread]` | List the feeds you follow, with how many posts you haven't read, how many posts each has, and when it was last fetched. `--unread` hides feeds with nothing new. Requires login. |
 | `unfollow <url>` | Stop following a feed. Requires login. |
 | `deletefeed <url>` | Delete a feed you added, along with its posts. Only the user who added the feed can delete it. Requires login. |
 | `import <file>` | Add and follow every feed in an OPML file. Requires login. |
