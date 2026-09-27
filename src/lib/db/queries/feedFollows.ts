@@ -1,6 +1,6 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db } from "..";
-import { feedFollows, feeds, users } from "../schema";
+import { feedFollows, feeds, postStates, posts, users } from "../schema";
 
 // Following a feed twice is not an error, it just changes nothing. `alreadyFollowed`
 // says which of the two happened so callers can report it.
@@ -51,6 +51,30 @@ export async function getFeedsFollowedBy(userId: string) {
     .orderBy(feeds.name);
 
   return rows.map(({ feed }) => feed);
+}
+
+// Unread is per user: a post counts until this user has a read time for it.
+export async function getFollowedFeedsWithCounts(userId: string) {
+  return await db
+    .select({
+      feed: feeds,
+      postCount: sql<number>`(
+        select count(*) from ${posts}
+        where ${posts.feedId} = ${feeds.id}
+      )`.mapWith(Number),
+      unreadCount: sql<number>`(
+        select count(*) from ${posts}
+        left join ${postStates}
+          on ${postStates.postId} = ${posts.id}
+          and ${postStates.userId} = ${userId}
+        where ${posts.feedId} = ${feeds.id}
+          and ${postStates.readAt} is null
+      )`.mapWith(Number),
+    })
+    .from(feedFollows)
+    .innerJoin(feeds, eq(feedFollows.feedId, feeds.id))
+    .where(eq(feedFollows.userId, userId))
+    .orderBy(feeds.name);
 }
 
 export async function getFeedFollowsForUser(userId: string) {
