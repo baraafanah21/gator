@@ -44,10 +44,14 @@ export const commandHelp: Record<string, CommandHelp> = {
     requiresLogin: true,
   },
   following: {
-    usage: "following",
-    summary: "List the feeds you follow.",
+    usage: "following [--unread]",
+    summary: "List the feeds you follow, with unread and post counts.",
     group: "Feeds",
     requiresLogin: true,
+    details: [
+      "Unread counts are yours alone; markread and browse --mark-read lower them.",
+      "--unread  only list feeds that have posts you have not read.",
+    ],
   },
   unfollow: {
     usage: "unfollow <url>",
