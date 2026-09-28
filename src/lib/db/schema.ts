@@ -1,4 +1,4 @@
-import { pgTable, timestamp, uuid, text, unique } from "drizzle-orm/pg-core";
+import { pgTable, timestamp, uuid, text, unique, integer } from "drizzle-orm/pg-core";
 
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom().notNull(),
@@ -31,6 +31,9 @@ export const feeds = pgTable("feeds", {
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
   lastFetchedAt: timestamp("last_fetched_at"),
+  // Set when the last fetch failed and cleared by the next one that works.
+  lastFetchError: text("last_fetch_error"),
+  failedFetches: integer("failed_fetches").notNull().default(0),
 });
 
 export const feedFollows = pgTable(
