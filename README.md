@@ -215,6 +215,18 @@ Pass `--limit <n>` to stop after `n` rounds instead of running until Ctrl+C, whi
 npm run start agg 1m -- --limit 1
 ```
 
+If a feed fails to download or parse, `agg` logs the error and still counts the
+attempt, so one broken feed does not stop the others from being fetched. gator
+keeps the error, and `feeds` and `following` show it under the feed until a
+fetch works again:
+
+```
+* Old Blog
+  URL: https://example.com/feed.xml
+  ...
+  Failing (3 times in a row): Failed to fetch https://example.com/feed.xml: 404 Not Found
+```
+
 ### Fetching right away
 
 `agg` fetches one feed per interval, so after an `import` it can take a while to
