@@ -36,6 +36,9 @@ export const commandHelp: Record<string, CommandHelp> = {
     usage: "feeds",
     summary: "List every feed with its owner, followers and post count.",
     group: "Feeds",
+    details: [
+      "A feed whose last fetch failed shows the error and how many times in a row.",
+    ],
   },
   follow: {
     usage: "follow <url>",
