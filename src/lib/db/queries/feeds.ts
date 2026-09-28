@@ -48,6 +48,27 @@ export async function markFeedFetched(
     .set({
       lastFetchedAt: now,
       updatedAt: now,
+      lastFetchError: null,
+      failedFetches: 0,
+    })
+    .where(eq(feeds.id, feedId));
+}
+
+// A failed fetch still counts as a fetch, so agg moves on to the next feed
+// instead of retrying a broken one every round.
+export async function markFeedFailed(
+  feedId: string,
+  error: string,
+): Promise<void> {
+  const now = new Date();
+
+  await db
+    .update(feeds)
+    .set({
+      lastFetchedAt: now,
+      updatedAt: now,
+      lastFetchError: error,
+      failedFetches: sql`${feeds.failedFetches} + 1`,
     })
     .where(eq(feeds.id, feedId));
 }
