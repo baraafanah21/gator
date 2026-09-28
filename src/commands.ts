@@ -1,6 +1,6 @@
 import fs from "fs";
 
-import { fetchFeed } from "./rss.js";
+import { fetchFeed, type RSSFeed } from "./rss.js";
 import { buildOPML, parseOPML } from "./opml.js";
 import { deleteAllUsers } from "./lib/db/queries/users.js";
 import { setUser, readConfig } from "./config.js";
@@ -25,6 +25,7 @@ import {
   getFeedByURL,
   getFeeds,
   getNextFeedToFetch,
+  markFeedFailed,
   markFeedFetched,
   printFeed,
   type Feed,
@@ -212,7 +213,18 @@ export async function handlerFeeds(
         feed.lastFetchedAt ? describeTime(feed.lastFetchedAt) : "never"
       }`,
     );
+    printFetchError(feed);
   }
+}
+
+function printFetchError(feed: Feed): void {
+  if (feed.failedFetches === 0) {
+    return;
+  }
+
+  const times = feed.failedFetches === 1 ? "once" : `${feed.failedFetches} times in a row`;
+
+  console.log(`  Failing (${times}): ${feed.lastFetchError}`);
 }
 
 export async function handlerFollow(
@@ -390,6 +402,7 @@ export async function handlerFollowing(
         feed.lastFetchedAt ? describeTime(feed.lastFetchedAt) : "never"
       }`,
     );
+    printFetchError(feed);
   }
 
   const totalUnread = followed.reduce((sum, { unreadCount }) => sum + unreadCount, 0);
@@ -469,7 +482,14 @@ export async function scrapeFeeds(): Promise<void> {
 async function scrapeFeed(feed: Feed): Promise<number> {
   console.log(`Fetching feed: ${feed.name}`);
 
-  const rssFeed = await fetchFeed(feed.url);
+  let rssFeed: RSSFeed;
+
+  try {
+    rssFeed = await fetchFeed(feed.url);
+  } catch (err) {
+    await markFeedFailed(feed.id, err instanceof Error ? err.message : String(err));
+    throw err;
+  }
 
   await markFeedFetched(feed.id);
 
