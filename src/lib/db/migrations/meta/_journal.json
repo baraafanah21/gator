@@ -43,6 +43,13 @@
       "when": 1790023273635,
       "tag": "0005_demonic_hellfire_club",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790615768665,
+      "tag": "0006_low_lady_mastermind",
+      "breakpoints": true
     }
   ]
 }
