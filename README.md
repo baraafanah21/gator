@@ -112,7 +112,7 @@ one command's flags.
 
 | Command | Description |
 | --- | --- |
-| `addfeed <name> <url>` | Add an RSS or Atom feed and follow it. Requires login. |
+| `addfeed [name] <url>` | Add an RSS or Atom feed and follow it. The url can be a site's home page; see [Adding feeds](#adding-feeds). Requires login. |
 | `feeds` | List every feed with its URL, owner, follower and post counts, and when it was last fetched. |
 | `follow <url>` | Follow a feed that someone has already added. Requires login. |
 | `following [--unread]` | List the feeds you follow, with how many posts you haven't read, how many posts each has, and when it was last fetched. `--unread` hides feeds with nothing new. Requires login. |
@@ -140,6 +140,28 @@ one command's flags.
 | --- | --- |
 | `help [command]` | List every command, or show one command's flags. |
 | `reset` | Delete all users. Their feeds, follows and posts are deleted too. |
+
+### Adding feeds
+
+`addfeed` fetches the url before saving it, so a typo or a dead feed is an error
+now rather than a failure in `agg` later. You don't need to hunt for the feed's
+own url: give a site's home page and gator adds the feed that page links to.
+Leave out the name and the feed's own title is used:
+
+```bash
+# A feed url, named by you
+npm run start addfeed "Hacker News" https://hnrss.org/newest
+
+# A home page, named after the feed's title
+npm run start addfeed https://blog.rust-lang.org/
+```
+
+To add a url without fetching it, for example a feed that is down right now,
+pass `--no-check` along with a name:
+
+```bash
+npm run start addfeed "Old Blog" https://example.com/feed.xml -- --no-check
+```
 
 ### Filtering what you browse
 
