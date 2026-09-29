@@ -27,10 +27,16 @@ export const commandHelp: Record<string, CommandHelp> = {
     group: "Users",
   },
   addfeed: {
-    usage: "addfeed <name> <url>",
+    usage: "addfeed [name] <url> [--no-check]",
     summary: "Add an RSS or Atom feed and follow it.",
     group: "Feeds",
     requiresLogin: true,
+    details: [
+      "The url is fetched first, so a typo or a dead feed is caught straight away.",
+      "Give a site's home page and the feed it links to is found and added instead.",
+      "Leave out the name to use the feed's own title.",
+      "--no-check  add the url as given without fetching it. Needs a name.",
+    ],
   },
   feeds: {
     usage: "feeds",
