@@ -17,22 +17,35 @@ export type RSSItem = {
 };
 
 export async function fetchFeed(feedURL: string): Promise<RSSFeed> {
-  const response = await fetch(feedURL, {
-    headers: {
-      "User-Agent": "gator",
-      Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml",
-    },
-  });
+  return parseFeed(await fetchText(feedURL));
+}
+
+async function fetchText(url: string): Promise<string> {
+  let response: Response;
+
+  try {
+    response = await fetch(url, {
+      headers: {
+        "User-Agent": "gator",
+        Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml",
+      },
+    });
+  } catch (err) {
+    // fetch only says "fetch failed"; the reason (DNS, refused, TLS) is in cause.
+    const cause = err instanceof Error && err.cause instanceof Error
+      ? err.cause.message
+      : String(err);
+
+    throw new Error(`Could not reach ${url}: ${cause}`);
+  }
 
   if (!response.ok) {
     throw new Error(
-      `Failed to fetch ${feedURL}: ${response.status} ${response.statusText}`,
+      `Failed to fetch ${url}: ${response.status} ${response.statusText}`,
     );
   }
 
-  const xml = await response.text();
-
-  return parseFeed(xml);
+  return await response.text();
 }
 
 // Handles both RSS (<rss><channel>) and Atom (<feed>), normalising Atom into
