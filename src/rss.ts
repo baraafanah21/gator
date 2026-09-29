@@ -48,6 +48,78 @@ async function fetchText(url: string): Promise<string> {
   return await response.text();
 }
 
+export type DiscoveredFeed = {
+  url: string;
+  feed: RSSFeed;
+};
+
+// Accepts either a feed URL or the URL of a web page that advertises its feed
+// with <link rel="alternate" type="application/rss+xml" href="...">, which is
+// how feed readers find a site's feed from its home page.
+export async function discoverFeed(url: string): Promise<DiscoveredFeed> {
+  const body = await fetchText(url);
+
+  try {
+    return { url, feed: parseFeed(body) };
+  } catch (err) {
+    if (!/<html[\s>]/i.test(body)) {
+      throw err;
+    }
+  }
+
+  const candidates = findFeedLinks(body, url);
+
+  if (candidates.length === 0) {
+    throw new Error(
+      `${url} is a web page that does not link to an RSS or Atom feed. Try the feed's own URL.`,
+    );
+  }
+
+  const [feedURL] = candidates;
+
+  return { url: feedURL, feed: await fetchFeed(feedURL) };
+}
+
+const FEED_TYPES = ["application/rss+xml", "application/atom+xml"];
+
+function findFeedLinks(html: string, pageURL: string): string[] {
+  const links: string[] = [];
+
+  for (const [tag] of html.matchAll(/<link\b[^>]*>/gi)) {
+    const attrs = parseAttributes(tag);
+
+    const rels = (attrs.rel ?? "").toLowerCase().split(/\s+/);
+    const type = (attrs.type ?? "").toLowerCase();
+
+    if (!rels.includes("alternate") || !FEED_TYPES.includes(type) || !attrs.href) {
+      continue;
+    }
+
+    try {
+      links.push(new URL(decodeAttribute(attrs.href), pageURL).toString());
+    } catch {
+      continue;
+    }
+  }
+
+  return links;
+}
+
+function parseAttributes(tag: string): Record<string, string> {
+  const attrs: Record<string, string> = {};
+
+  for (const match of tag.matchAll(/([a-z-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi)) {
+    attrs[match[1].toLowerCase()] = match[2] ?? match[3] ?? match[4];
+  }
+
+  return attrs;
+}
+
+// Just enough to undo what HTML does to URLs in attributes.
+function decodeAttribute(value: string): string {
+  return value.replace(/&amp;/g, "&").replace(/&#38;/g, "&");
+}
+
 // Handles both RSS (<rss><channel>) and Atom (<feed>), normalising Atom into
 // the RSS shape so the rest of gator only deals with one kind of feed.
 export function parseFeed(xml: string): RSSFeed {
