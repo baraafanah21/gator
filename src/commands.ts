@@ -1,6 +1,6 @@
 import fs from "fs";
 
-import { fetchFeed, type RSSFeed } from "./rss.js";
+import { discoverFeed, fetchFeed, type RSSFeed } from "./rss.js";
 import { buildOPML, parseOPML } from "./opml.js";
 import { deleteAllUsers } from "./lib/db/queries/users.js";
 import { setUser, readConfig } from "./config.js";
@@ -170,12 +170,50 @@ export async function handlerAddFeed(
   user: User,
   ...args: string[]
 ): Promise<void> {
-  if (args.length !== 2) {
-    throw usageError(cmdName, "addfeed takes a name and a url");
+  const parsed = parseFlags(args, { "no-check": "boolean" });
+
+  if (parsed.positional.length < 1 || parsed.positional.length > 2) {
+    throw usageError(cmdName, "addfeed takes a url, optionally after a name");
   }
 
-  const [name, url] = args;
+  const [givenName, givenURL] =
+    parsed.positional.length === 2
+      ? parsed.positional
+      : [undefined, parsed.positional[0]];
 
+  const noCheck = flagBool(parsed, "no-check");
+
+  if (noCheck && givenName === undefined) {
+    throw usageError(cmdName, "addfeed --no-check needs a name, since it cannot read the feed's title");
+  }
+
+  await requireNewFeed(givenURL);
+
+  let url = givenURL;
+  let name = givenName;
+
+  if (!noCheck) {
+    const discovered = await discoverFeed(givenURL);
+
+    if (discovered.url !== givenURL) {
+      console.log(`Found feed ${discovered.url} on ${givenURL}`);
+      await requireNewFeed(discovered.url);
+    }
+
+    url = discovered.url;
+    name ??= discovered.feed.channel.title.trim() || new URL(url).hostname;
+  }
+
+  const feed = await createFeed(name!, url, user.id);
+
+  printFeed(feed, user);
+
+  const feedFollow = await createFeedFollow(user.id, feed.id);
+
+  console.log(`${feedFollow.userName} is now following ${feedFollow.feedName}`);
+}
+
+async function requireNewFeed(url: string): Promise<void> {
   const existing = await getFeedByURL(url);
 
   if (existing) {
@@ -183,14 +221,6 @@ export async function handlerAddFeed(
       `Feed ${url} already exists as "${existing.name}". Follow it with 'follow ${url}'.`,
     );
   }
-
-  const feed = await createFeed(name, url, user.id);
-
-  printFeed(feed, user);
-
-  const feedFollow = await createFeedFollow(user.id, feed.id);
-
-  console.log(`${feedFollow.userName} is now following ${feedFollow.feedName}`);
 }
 
 export async function handlerFeeds(
