@@ -21,13 +21,23 @@ export async function fetchFeed(feedURL: string): Promise<RSSFeed> {
 }
 
 async function fetchText(url: string): Promise<string> {
-  let response: Response;
+  const response = await request(url, {});
 
+  requireOK(url, response);
+
+  return await response.text();
+}
+
+async function request(
+  url: string,
+  headers: Record<string, string>,
+): Promise<Response> {
   try {
-    response = await fetch(url, {
+    return await fetch(url, {
       headers: {
         "User-Agent": "gator",
         Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml",
+        ...headers,
       },
     });
   } catch (err) {
@@ -38,14 +48,14 @@ async function fetchText(url: string): Promise<string> {
 
     throw new Error(`Could not reach ${url}: ${cause}`);
   }
+}
 
+function requireOK(url: string, response: Response): void {
   if (!response.ok) {
     throw new Error(
       `Failed to fetch ${url}: ${response.status} ${response.statusText}`,
     );
   }
-
-  return await response.text();
 }
 
 export type DiscoveredFeed = {
