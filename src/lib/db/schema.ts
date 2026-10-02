@@ -34,6 +34,10 @@ export const feeds = pgTable("feeds", {
   // Set when the last fetch failed and cleared by the next one that works.
   lastFetchError: text("last_fetch_error"),
   failedFetches: integer("failed_fetches").notNull().default(0),
+  // Validators from the last successful download, sent back on the next fetch
+  // so an unchanged feed costs a 304 instead of the whole document.
+  etag: text("etag"),
+  lastModified: text("last_modified"),
 });
 
 export const feedFollows = pgTable(
