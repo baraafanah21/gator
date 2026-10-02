@@ -38,8 +38,11 @@ export async function getFeedByURL(url: string) {
   return result;
 }
 
+// Validators are only passed when the feed was downloaded; after a 304 the ones
+// already stored still describe the version we have.
 export async function markFeedFetched(
   feedId: string,
+  validators?: { etag: string | null; lastModified: string | null },
 ): Promise<void> {
   const now = new Date();
 
@@ -50,6 +53,7 @@ export async function markFeedFetched(
       updatedAt: now,
       lastFetchError: null,
       failedFetches: 0,
+      ...validators,
     })
     .where(eq(feeds.id, feedId));
 }
