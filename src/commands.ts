@@ -1,6 +1,10 @@
 import fs from "fs";
 
-import { discoverFeed, fetchFeed, type RSSFeed } from "./rss.js";
+import {
+  discoverFeed,
+  fetchFeedIfChanged,
+  type ConditionalFetch,
+} from "./rss.js";
 import { buildOPML, parseOPML } from "./opml.js";
 import { deleteAllUsers } from "./lib/db/queries/users.js";
 import { setUser, readConfig } from "./config.js";
@@ -512,16 +516,27 @@ export async function scrapeFeeds(): Promise<void> {
 async function scrapeFeed(feed: Feed): Promise<number> {
   console.log(`Fetching feed: ${feed.name}`);
 
-  let rssFeed: RSSFeed;
+  let result: ConditionalFetch;
 
   try {
-    rssFeed = await fetchFeed(feed.url);
+    result = await fetchFeedIfChanged(feed.url, {
+      etag: feed.etag,
+      lastModified: feed.lastModified,
+    });
   } catch (err) {
     await markFeedFailed(feed.id, err instanceof Error ? err.message : String(err));
     throw err;
   }
 
-  await markFeedFetched(feed.id);
+  if (!result.changed) {
+    await markFeedFetched(feed.id);
+
+    console.log(`${feed.name} has not changed since the last fetch`);
+
+    return 0;
+  }
+
+  const rssFeed = result.feed;
 
   let saved = 0;
 
@@ -538,6 +553,10 @@ async function scrapeFeed(feed: Feed): Promise<number> {
       saved++;
     }
   }
+
+  // Stored only now that the posts are saved: storing them first would let a
+  // failed save be followed by a 304, and those posts would never be retried.
+  await markFeedFetched(feed.id, result.validators);
 
   console.log(
     `Saved ${saved} new posts from ${feed.name} (${rssFeed.channel.item.length} in feed)`,
