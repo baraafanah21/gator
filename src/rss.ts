@@ -20,6 +20,50 @@ export async function fetchFeed(feedURL: string): Promise<RSSFeed> {
   return parseFeed(await fetchText(feedURL));
 }
 
+// What a server told us about the version of a feed we last downloaded.
+export type FeedValidators = {
+  etag: string | null;
+  lastModified: string | null;
+};
+
+export type ConditionalFetch =
+  | { changed: false }
+  | { changed: true; feed: RSSFeed; validators: FeedValidators };
+
+// Sends back the validators from the last download so a server whose feed has
+// not changed can answer 304 with no body instead of the whole feed again.
+export async function fetchFeedIfChanged(
+  feedURL: string,
+  previous: FeedValidators,
+): Promise<ConditionalFetch> {
+  const headers: Record<string, string> = {};
+
+  if (previous.etag) {
+    headers["If-None-Match"] = previous.etag;
+  }
+
+  if (previous.lastModified) {
+    headers["If-Modified-Since"] = previous.lastModified;
+  }
+
+  const response = await request(feedURL, headers);
+
+  if (response.status === 304) {
+    return { changed: false };
+  }
+
+  requireOK(feedURL, response);
+
+  return {
+    changed: true,
+    feed: parseFeed(await response.text()),
+    validators: {
+      etag: response.headers.get("etag"),
+      lastModified: response.headers.get("last-modified"),
+    },
+  };
+}
+
 async function fetchText(url: string): Promise<string> {
   const response = await request(url, {});
 
