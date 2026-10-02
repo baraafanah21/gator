@@ -237,6 +237,12 @@ Pass `--limit <n>` to stop after `n` rounds instead of running until Ctrl+C, whi
 npm run start agg 1m -- --limit 1
 ```
 
+gator remembers the `ETag` and `Last-Modified` headers a feed was served with
+and sends them back on the next fetch. A server whose feed has not changed can
+then answer with a short "not modified" instead of the whole feed, which saves
+both sides the download. `agg` and `fetch` report these as
+`<feed> has not changed since the last fetch`.
+
 If a feed fails to download or parse, `agg` logs the error and still counts the
 attempt, so one broken feed does not stop the others from being fetched. gator
 keeps the error, and `feeds` and `following` show it under the feed until a
